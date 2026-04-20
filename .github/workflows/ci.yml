@@ -45,7 +45,8 @@ jobs:
 
       - uses: golangci/golangci-lint-action@v8
         with:
-          # Pin to a golangci-lint built with Go 1.25+ so it can lint code
-          # that uses Go 1.25 language features (matches alva-backend CI).
-          version: v2.8.1
+          # Pin to a golangci-lint built with Go 1.25 so it can lint code
+          # whose go.mod targets Go 1.25. alva-backend uses the v2.8.x
+          # series via its reusable workflow; v2.8.0 matches local dev.
+          version: v2.8.0
           args: --timeout=3m
