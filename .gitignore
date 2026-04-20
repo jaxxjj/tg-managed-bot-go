@@ -5,3 +5,6 @@ vendor/
 .idea/
 .vscode/
 .DS_Store
+
+# Built example binary
+examples/minimal/minimal

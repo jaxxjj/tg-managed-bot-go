@@ -72,7 +72,7 @@ func TestBuildNewBot_Errors(t *testing.T) {
 
 func TestValidateUsername(t *testing.T) {
 	good := []string{
-		"a_bot",   // min length 5
+		"a_bot", // min length 5
 		"mybot",
 		"Alva_Test_1_Bot",
 		"a1_" + strings.Repeat("x", UsernameMaxLen-3-3) + "bot", // exactly 32 chars
@@ -85,10 +85,10 @@ func TestValidateUsername(t *testing.T) {
 
 	bad := []string{
 		"",
-		"bot",                                // too short
-		"1startsWithDigit_bot",               // starts with digit
-		"has-dash_bot",                       // dash not allowed
-		"no_suffix",                          // doesn't end in bot
+		"bot",                  // too short
+		"1startsWithDigit_bot", // starts with digit
+		"has-dash_bot",         // dash not allowed
+		"no_suffix",            // doesn't end in bot
 		strings.Repeat("a", UsernameMaxLen) + "_bot", // too long
 	}
 	for _, u := range bad {
@@ -99,29 +99,59 @@ func TestValidateUsername(t *testing.T) {
 }
 
 func TestSanitizeUsername(t *testing.T) {
-	cases := []struct {
-		raw  string
-		want string
-	}{
-		{"My Alva Bot", "my_alva_bot"},
-		{"alva-123", "alva_123_bot"},
-		{"123numbers", "a123numbers_bot"},
-		{"  spaces  ", "a_spaces___bot"}, // two trailing _ from double-space → _bot
+	// Don't pin exact output; just require ValidateUsername to accept it
+	// and log for transparency.
+	cases := []string{
+		"My Alva Bot",
+		"alva-123",
+		"123numbers",
+		"  spaces  ",
 	}
-	for _, c := range cases {
-		got, err := SanitizeUsername(c.raw)
+	for _, raw := range cases {
+		got, err := SanitizeUsername(raw)
 		if err != nil {
-			t.Errorf("SanitizeUsername(%q): %v", c.raw, err)
+			t.Errorf("SanitizeUsername(%q): %v", raw, err)
 			continue
 		}
 		if err := ValidateUsername(got); err != nil {
-			t.Errorf("SanitizeUsername(%q) = %q, invalid: %v", c.raw, got, err)
+			t.Errorf("SanitizeUsername(%q) = %q, invalid: %v", raw, got, err)
 		}
-		// Don't pin exact output; just make sure it's valid. Log for transparency.
-		t.Logf("%q → %q", c.raw, got)
+		t.Logf("%q → %q", raw, got)
 	}
 
 	if _, err := SanitizeUsername(""); err == nil {
 		t.Error("expected error for empty input")
+	}
+}
+
+// Regression test for the earlier truncation bug: a very long input that
+// ends with a bare "bot" (no underscore before it) must still produce a
+// valid username that ends in "bot".
+func TestSanitizeUsername_TruncationPreservesBotSuffix(t *testing.T) {
+	cases := []string{
+		// Ends with bare "bot" after sanitize.
+		strings.Repeat("x", 40) + "bot",
+		// Ends with "_bot" after sanitize.
+		strings.Repeat("x", 40) + "_bot",
+		// Contains separators; after sanitize still ends with bot.
+		strings.Repeat("My Alva ", 10),
+	}
+	for _, raw := range cases {
+		got, err := SanitizeUsername(raw)
+		if err != nil {
+			t.Errorf("SanitizeUsername(%q): %v", raw, err)
+			continue
+		}
+		if len(got) > UsernameMaxLen {
+			t.Errorf("SanitizeUsername(%q) = %q (len=%d > %d)", raw, got, len(got), UsernameMaxLen)
+		}
+		if err := ValidateUsername(got); err != nil {
+			t.Errorf("SanitizeUsername(%q) = %q, invalid: %v", raw, got, err)
+		}
+		lower := strings.ToLower(got)
+		if !strings.HasSuffix(lower, "bot") {
+			t.Errorf("SanitizeUsername(%q) = %q, does not end with 'bot'", raw, got)
+		}
+		t.Logf("%q → %q", raw, got)
 	}
 }

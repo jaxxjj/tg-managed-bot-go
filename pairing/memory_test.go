@@ -91,6 +91,46 @@ func TestMemoryStore_Expiration(t *testing.T) {
 	}
 }
 
+func TestMemoryStore_ContextCancelled(t *testing.T) {
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	s := NewMemoryStore()
+
+	if err := s.Put(cancelled, "n", time.Minute); !errors.Is(err, context.Canceled) {
+		t.Errorf("Put on cancelled ctx: got %v, want context.Canceled", err)
+	}
+	if err := s.Complete(cancelled, "n", "t", "u"); !errors.Is(err, context.Canceled) {
+		t.Errorf("Complete on cancelled ctx: got %v, want context.Canceled", err)
+	}
+	if _, err := s.FetchAndDelete(cancelled, "n"); !errors.Is(err, context.Canceled) {
+		t.Errorf("FetchAndDelete on cancelled ctx: got %v, want context.Canceled", err)
+	}
+}
+
+func TestMemoryStore_Len(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore().(interface{ Len() int })
+
+	if s.Len() != 0 {
+		t.Errorf("initial Len = %d, want 0", s.Len())
+	}
+
+	store := s.(Store)
+	_ = store.Put(ctx, "a", time.Minute)
+	_ = store.Put(ctx, "b", time.Minute)
+	if s.Len() != 2 {
+		t.Errorf("after 2 Put: Len = %d, want 2", s.Len())
+	}
+
+	_ = store.Put(ctx, "c", 10*time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
+	// Expired entry gets swept on next Len() call.
+	if s.Len() != 2 {
+		t.Errorf("after sweep: Len = %d, want 2", s.Len())
+	}
+}
+
 func TestMemoryStore_ConcurrentFetch(t *testing.T) {
 	// Verify only one goroutine gets the entry (atomicity).
 	ctx := context.Background()

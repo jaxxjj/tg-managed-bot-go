@@ -1,0 +1,43 @@
+# golangci-lint v2 config. Minimal strict set for a small library.
+# Mirrors alva-backend's approach: pin a Go version for the linter that
+# is independent of go.mod's directive (so linter tolerance is stable).
+version: "2"
+
+run:
+  timeout: 3m
+  go: "1.24"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - unconvert
+    - revive
+
+  settings:
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+        - name: error-return
+        - name: error-naming
+        - name: if-return
+        - name: empty-block
+        - name: unused-parameter
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

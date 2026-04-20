@@ -121,14 +121,27 @@ func onManagedBotCreated(ctx context.Context, store pairing.Store,
 
 ## Running tests
 
+The repo ships a `Makefile` with the common developer targets:
+
 ```
-go test ./...
-go test -cover ./...
+make help           # list targets
+make verify         # fmt-check + vet + lint + test (what CI runs)
+make test-cover     # tests + coverage summary
+make lint-fix       # golangci-lint --fix
+make example-run    # start the Gin pairing demo (set PAIRING_SECRET)
+```
+
+Or run the underlying commands directly:
+
+```
+go test -race ./...
+go test -race -cover ./...
+golangci-lint run
 ```
 
 Current coverage:
-- `link` — 81%
-- `nonce` — 89%
+- `link` — 96%
+- `nonce` — 87%
 - `pairing` — 100%
 
 ## Project status & roadmap

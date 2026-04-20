@@ -70,7 +70,7 @@ func SanitizeUsername(raw string) (string, error) {
 	s = b.String()
 
 	// Ensure starts with a letter.
-	if s == "" || !(s[0] >= 'a' && s[0] <= 'z') {
+	if s == "" || s[0] < 'a' || s[0] > 'z' {
 		s = "a" + s
 	}
 
@@ -82,19 +82,24 @@ func SanitizeUsername(raw string) (string, error) {
 		s += "bot"
 	}
 
-	// Truncate from the left up to the minimum length if too long, preserving the
-	// "_bot" suffix.
+	// Truncate if too long, always preserving the trailing "bot" (or "_bot"
+	// if present). The prior blocks guarantee s ends with "bot".
 	if len(s) > UsernameMaxLen {
-		suffix := "_bot"
-		if strings.HasSuffix(s, suffix) {
-			head := s[:len(s)-len(suffix)]
-			if len(head)+len(suffix) > UsernameMaxLen {
-				head = head[:UsernameMaxLen-len(suffix)]
-			}
-			s = head + suffix
-		} else {
-			s = s[:UsernameMaxLen]
+		var suffix string
+		switch {
+		case strings.HasSuffix(s, "_bot"):
+			suffix = "_bot"
+		case strings.HasSuffix(s, "bot"):
+			suffix = "bot"
+		default:
+			// Defensive: should not happen given earlier blocks.
+			return "", fmt.Errorf("link: sanitize invariant violated for %q", raw)
 		}
+		head := s[:len(s)-len(suffix)]
+		if keep := UsernameMaxLen - len(suffix); len(head) > keep {
+			head = head[:keep]
+		}
+		s = head + suffix
 	}
 
 	if err := ValidateUsername(s); err != nil {

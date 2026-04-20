@@ -29,6 +29,9 @@ type memoryStore struct {
 }
 
 func (s *memoryStore) Put(ctx context.Context, nonce string, ttl time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -45,6 +48,9 @@ func (s *memoryStore) Put(ctx context.Context, nonce string, ttl time.Duration) 
 }
 
 func (s *memoryStore) Complete(ctx context.Context, nonce, token, botUsername string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -65,6 +71,9 @@ func (s *memoryStore) Complete(ctx context.Context, nonce, token, botUsername st
 }
 
 func (s *memoryStore) FetchAndDelete(ctx context.Context, nonce string) (*Entry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -88,6 +97,11 @@ func (s *memoryStore) FetchAndDelete(ctx context.Context, nonce string) (*Entry,
 }
 
 // sweepLocked removes expired entries. Caller must hold s.mu.
+//
+// Note: this runs O(N) every call. For the expected use case (short TTL,
+// low concurrent-pairing count) this is fine. Production deployments
+// should use a Store backed by a system with native TTL (Redis EXPIRE,
+// Cloudflare KV expiration, Postgres partial indexes with a cron).
 func (s *memoryStore) sweepLocked() {
 	now := time.Now()
 	for nonce, e := range s.entries {
@@ -95,4 +109,14 @@ func (s *memoryStore) sweepLocked() {
 			delete(s.entries, nonce)
 		}
 	}
+}
+
+// Len returns the number of entries currently held, including Waiting and
+// Ready states. Exposed on the concrete type (not the [Store] interface)
+// for tests and local observability.
+func (s *memoryStore) Len() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sweepLocked()
+	return len(s.entries)
 }
