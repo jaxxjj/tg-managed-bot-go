@@ -1,0 +1,37 @@
+# Minimal golangci-lint config tuned for this small library.
+# Keep strict but not obnoxious.
+run:
+  timeout: 3m
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - gofmt
+    - goimports
+    - unconvert
+    - revive
+
+linters-settings:
+  revive:
+    rules:
+      - name: exported
+      - name: package-comments
+      - name: var-naming
+      - name: error-return
+      - name: error-naming
+      - name: if-return
+      - name: empty-block
+      - name: unused-parameter
+
+issues:
+  exclude-rules:
+    # test files can be a bit looser on error checking
+    - path: _test\.go
+      linters:
+        - errcheck

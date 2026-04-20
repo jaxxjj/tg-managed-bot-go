@@ -1,6 +1,7 @@
 package nonce
 
 import (
+	"errors"
 	"regexp"
 	"strings"
 	"testing"
@@ -38,6 +39,9 @@ func TestNewN_RejectsShort(t *testing.T) {
 	if err == nil {
 		t.Errorf("expected error for n=4")
 	}
+	if !errors.Is(err, ErrInvalid) {
+		t.Errorf("error does not wrap ErrInvalid: %v", err)
+	}
 }
 
 func TestNewN_UsesAlphabet(t *testing.T) {
@@ -68,7 +72,7 @@ func TestExtract_Roundtrip(t *testing.T) {
 
 func TestExtract_CaseInsensitive(t *testing.T) {
 	n, _ := New()
-	username := strings.ToUpper("alva_" + n + "_Bot") // weird casing
+	username := strings.ToUpper("alva_" + n + "_Bot")
 	got, ok := Extract(username, "alva")
 	if !ok {
 		t.Fatalf("Extract failed for %q", username)
@@ -80,14 +84,14 @@ func TestExtract_CaseInsensitive(t *testing.T) {
 
 func TestExtract_MissFields(t *testing.T) {
 	cases := []string{
-		"alva_tooshort_bot",          // nonce too short
-		"wrong_h3k9mpq4x7nv_bot",     // wrong prefix
-		"alva_h3k9mpq4x7nv",          // no _bot suffix
-		"alva_H3K9MPQ4X7NV_bot_xxx",  // trailing garbage
-		"",                           // empty
-		"alva__bot",                  // empty nonce
-		"alva_h3k9mpq-x7nv_bot",      // invalid char
-		"alva_lllllllllll_bot",       // l not in alphabet (ambiguous with 1)
+		"alva_tooshort_bot",         // nonce too short
+		"wrong_h3k9mpq4x7nv_bot",    // wrong prefix
+		"alva_h3k9mpq4x7nv",         // no _bot suffix
+		"alva_h3k9mpq4x7nv_bot_xxx", // trailing garbage
+		"",                          // empty
+		"alva__bot",                 // empty nonce
+		"alva_h3k9mpq-x7nv_bot",     // invalid char
+		"alva_lllllllllll_bot",      // l not in alphabet (ambiguous with 1)
 	}
 	for _, c := range cases {
 		if _, ok := Extract(c, "alva"); ok {
@@ -107,6 +111,24 @@ func TestPattern(t *testing.T) {
 	}
 }
 
+// TestPattern_DerivedFromAlphabet ensures the Pattern regex accepts exactly
+// the characters in alphabet and rejects every other Latin letter/digit.
+// This is what catches silent drift if alphabet or Pattern is changed.
+func TestPattern_DerivedFromAlphabet(t *testing.T) {
+	p := Pattern("alva", MinLength)
+	re := regexp.MustCompile(p)
+
+	for _, r := range "0123456789abcdefghijklmnopqrstuvwxyz" {
+		nonce := strings.Repeat(string(r), MinLength)
+		username := "alva_" + nonce + "_bot"
+		want := strings.ContainsRune(alphabet, r)
+		got := re.MatchString(username)
+		if got != want {
+			t.Errorf("char %q: alphabet=%v, pattern matches=%v (drift detected)", r, want, got)
+		}
+	}
+}
+
 func TestValidate(t *testing.T) {
 	valid, _ := New()
 	if err := Validate(valid); err != nil {
@@ -119,8 +141,95 @@ func TestValidate(t *testing.T) {
 		"h3k9 pq4x7nv", // space
 	}
 	for _, s := range invalid {
-		if err := Validate(s); err == nil {
+		err := Validate(s)
+		if err == nil {
 			t.Errorf("Validate(%q) should fail", s)
+			continue
 		}
+		if !errors.Is(err, ErrInvalid) {
+			t.Errorf("Validate(%q) error does not wrap ErrInvalid: %v", s, err)
+		}
+	}
+}
+
+func TestPackIntoUsername_Roundtrip(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		n, err := New()
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		username, err := PackIntoUsername("alva", n)
+		if err != nil {
+			t.Fatalf("PackIntoUsername: %v", err)
+		}
+		got, ok := Extract(username, "alva")
+		if !ok {
+			t.Fatalf("Extract failed for %q", username)
+		}
+		if got != n {
+			t.Errorf("roundtrip: got %q, want %q", got, n)
+		}
+	}
+}
+
+func TestPackIntoUsername_CaseInsensitivePrefix(t *testing.T) {
+	n, _ := New()
+	u1, _ := PackIntoUsername("alva", n)
+	u2, _ := PackIntoUsername("ALVA", n)
+	u3, _ := PackIntoUsername("  Alva  ", n)
+	if u1 != u2 || u2 != u3 {
+		t.Errorf("prefix normalization inconsistent: %q / %q / %q", u1, u2, u3)
+	}
+}
+
+func TestPackIntoUsername_Errors(t *testing.T) {
+	n, _ := New()
+	cases := []struct {
+		name   string
+		prefix string
+		nonce  string
+	}{
+		{"empty prefix", "", n},
+		{"bad prefix char", "alva!", n},
+		{"short nonce", "alva", "abc"},
+		{"too long packed", strings.Repeat("x", 20), n}, // 20 + 1 + 12 + 4 = 37 > 32
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := PackIntoUsername(c.prefix, c.nonce)
+			if err == nil {
+				t.Errorf("expected error")
+			}
+		})
+	}
+}
+
+func BenchmarkNew(b *testing.B) {
+	for b.Loop() {
+		_, _ = New()
+	}
+}
+
+func BenchmarkExtract_Hit(b *testing.B) {
+	n, _ := New()
+	username := "alva_" + n + "_bot"
+	b.ResetTimer()
+	for b.Loop() {
+		_, _ = Extract(username, "alva")
+	}
+}
+
+func BenchmarkExtract_Miss(b *testing.B) {
+	username := "something_else_entirely"
+	for b.Loop() {
+		_, _ = Extract(username, "alva")
+	}
+}
+
+func BenchmarkPackIntoUsername(b *testing.B) {
+	n, _ := New()
+	b.ResetTimer()
+	for b.Loop() {
+		_, _ = PackIntoUsername("alva", n)
 	}
 }
