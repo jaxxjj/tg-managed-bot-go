@@ -63,7 +63,11 @@ func main() {
 	r.PUT("/pair/:nonce", completeHandler(store, secret))
 	r.GET("/pair/:nonce", fetchHandler(store))
 
-	addr := ":8080"
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	addr := ":" + port
 	log.Printf("pairing service listening on %s", addr)
 	if err := r.Run(addr); err != nil {
 		log.Fatal(err)
