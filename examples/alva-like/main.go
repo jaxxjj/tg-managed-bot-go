@@ -72,13 +72,7 @@ func main() {
 	//     behind ngrok/tailscale where the tunneled URL varies).
 	if cfg.PublicURL != "" {
 		hookURL := strings.TrimRight(cfg.PublicURL, "/") + "/tg/manager-webhook"
-		setupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		if err := api.SetWebhook(setupCtx, hookURL, []string{"message"}); err != nil {
-			cancel()
-			log.Fatal().Err(err).Str("webhook", hookURL).Msg("SetWebhook failed")
-		}
-		cancel()
-		log.Info().Str("webhook", hookURL).Msg("manager bot webhook registered")
+		registerManagerWebhook(api, hookURL)
 	} else {
 		log.Warn().Msg("PUBLIC_URL unset — run setWebhook out-of-band for manager bot")
 	}
@@ -198,6 +192,18 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// registerManagerWebhook installs hookURL as the manager bot's webhook.
+// Extracted so the 10-second context can be scoped via defer cancel()
+// and the happy-path log fires only when SetWebhook succeeds.
+func registerManagerWebhook(api *tgapi.Client, hookURL string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := api.SetWebhook(ctx, hookURL, []string{"message"}); err != nil {
+		log.Fatal().Err(err).Str("webhook", hookURL).Msg("SetWebhook failed")
+	}
+	log.Info().Str("webhook", hookURL).Msg("manager bot webhook registered")
 }
 
 // ginAdapt converts a stdlib http.HandlerFunc into a gin.HandlerFunc
