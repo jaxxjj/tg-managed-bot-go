@@ -172,9 +172,15 @@ func (s *Store) FetchAndDelete(ctx context.Context, nonce string) (*pairing.Entr
 	if !ok || len(arr) != 3 {
 		return nil, fmt.Errorf("redisstore: FetchAndDelete: unexpected script shape %T %v", raw, raw)
 	}
-	token, _ := arr[0].(string)
-	username, _ := arr[1].(string)
-	completedStr, _ := arr[2].(string)
+	token, okT := arr[0].(string)
+	username, okU := arr[1].(string)
+	completedStr, okC := arr[2].(string)
+	if !okT || !okU || !okC {
+		return nil, fmt.Errorf(
+			"redisstore: FetchAndDelete: unexpected field types (token=%T, username=%T, completed_at=%T)",
+			arr[0], arr[1], arr[2],
+		)
+	}
 	unix, err := strconv.ParseInt(completedStr, 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("redisstore: FetchAndDelete: parse completed_at %q: %w", completedStr, err)

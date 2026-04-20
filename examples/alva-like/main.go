@@ -33,6 +33,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -94,7 +95,9 @@ func main() {
 
 	// 6. Illustrative drift probe: /diag/drift/:bot_id runs reconcile
 	//    against a given managed bot. Real apps have a cron reading
-	//    from a managed_bots DB.
+	//    from a managed_bots DB and keyed by stored bot_id/token.
+	//    This example accepts the managed bot's token via the manager
+	//    client so the demo is self-contained.
 	r.GET("/diag/drift/:bot_id", driftProbe(api))
 
 	srv := &http.Server{
@@ -219,22 +222,57 @@ func managerWebhook(h *manager.Handler) gin.HandlerFunc {
 	}
 }
 
-// driftProbe runs [reconcile.CheckDrift] against the bot identified by
-// :bot_id using the current manager credentials. It's purely
-// illustrative — production callers iterate managed_bots records and
-// act on each detected Drift.
-func driftProbe(api *tgapi.Client) gin.HandlerFunc {
+// driftProbe runs [reconcile.CheckDrift] against a managed child bot
+// (not the manager). Production callers would:
+//
+//  1. Load the stored State (expected webhook / privacy / username) and
+//     the child's encrypted token from a managed_bots DB keyed by
+//     :bot_id.
+//  2. Build a [tgapi.Client] scoped to the child token.
+//  3. Call GetMe + GetWebhookInfo through that client.
+//  4. Feed the results to CheckDrift and act on each returned Drift.
+//
+// This demo accepts the child's token out-of-band:
+//
+//	GET /diag/drift/:bot_id  (header) X-Bot-Token: <child token>
+//
+// so the example stays self-contained without a persistence layer.
+func driftProbe(manager *tgapi.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		_ = c.Param("bot_id") // real code would look up stored State here
-
-		state := reconcile.State{
-			BotID:            0,
-			ExpectPrivacyOff: true,
-			// ExpectedWebhookURL / LastKnownUsername loaded from DB in real apps.
+		botIDStr := c.Param("bot_id")
+		botID, err := strconv.ParseInt(botIDStr, 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad bot_id"})
+			return
 		}
 
-		me, meErr := api.GetMe(c.Request.Context())
-		wh, whErr := api.GetWebhookInfo(c.Request.Context())
+		// Pull the child token out-of-band via header for the demo.
+		// Real apps look this up in the managed_bots DB; the only reason
+		// manager is passed in is to show the alternative: you could
+		// instead call manager.GetManagedBotToken(ctx, botID) for a
+		// fresh copy every time (and pay the extra round-trip).
+		childToken := c.GetHeader("X-Bot-Token")
+		if childToken == "" {
+			fresh, err := manager.GetManagedBotToken(c.Request.Context(), botID)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error": "no X-Bot-Token header and getManagedBotToken failed: " + err.Error(),
+				})
+				return
+			}
+			childToken = fresh
+		}
+		child := tgapi.NewClient(childToken)
+
+		// Demo state. Real apps load this from DB.
+		state := reconcile.State{
+			BotID:              botID,
+			ExpectPrivacyOff:   true,
+			ExpectedWebhookURL: os.Getenv("PUBLIC_WEBHOOK_URL_FOR_" + botIDStr), // illustrative
+		}
+
+		me, meErr := child.GetMe(c.Request.Context())
+		wh, whErr := child.GetWebhookInfo(c.Request.Context())
 
 		drifts := reconcile.CheckDrift(state, reconcile.Observed{
 			Me: me, GetMeErr: meErr,

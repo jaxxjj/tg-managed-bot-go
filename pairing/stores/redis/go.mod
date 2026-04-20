@@ -1,6 +1,6 @@
 module github.com/alva-ai/tg-managed-bot-go/pairing/stores/redis
 
-go 1.25.7
+go 1.25
 
 replace github.com/alva-ai/tg-managed-bot-go => ../../..
 

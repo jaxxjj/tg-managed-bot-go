@@ -1,6 +1,6 @@
 module github.com/alva-ai/tg-managed-bot-go/examples/minimal
 
-go 1.25.7
+go 1.25.0
 
 replace github.com/alva-ai/tg-managed-bot-go => ../..
 
