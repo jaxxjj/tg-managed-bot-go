@@ -17,6 +17,8 @@ GO := go
 endif
 
 EXAMPLE_DIR := examples/minimal
+ALVA_EXAMPLE_DIR := examples/alva-like
+REDIS_DIR := pairing/stores/redis
 COVERAGE_FILE := coverage.out
 COVERAGE_HTML := coverage.html
 
@@ -79,9 +81,11 @@ tidy:
 	@echo "--> go mod tidy (root)"
 	@$(GO) mod tidy
 
-tidy-all: tidy
+tidy-all: tidy redis-tidy
 	@echo "--> go mod tidy ($(EXAMPLE_DIR))"
 	@cd $(EXAMPLE_DIR) && $(GO) mod tidy
+	@echo "--> go mod tidy ($(ALVA_EXAMPLE_DIR))"
+	@cd $(ALVA_EXAMPLE_DIR) && $(GO) mod tidy
 
 # =============================================================================
 # Linting
@@ -115,8 +119,24 @@ lint-fix:
 
 .PHONY: verify
 
-verify: fmt-check vet lint test
+verify: fmt-check vet lint test redis-test
 	@echo "--> all checks passed"
+
+# =============================================================================
+# Redis store submodule (independent go.mod)
+# =============================================================================
+
+.PHONY: redis-test redis-vet redis-tidy
+
+redis-test:
+	@echo "--> Testing $(REDIS_DIR)"
+	@cd $(REDIS_DIR) && $(GO) test -race ./...
+
+redis-vet:
+	@cd $(REDIS_DIR) && $(GO) vet ./...
+
+redis-tidy:
+	@cd $(REDIS_DIR) && $(GO) mod tidy
 
 # =============================================================================
 # Example (examples/minimal, independent go.mod)
@@ -137,6 +157,25 @@ example-vet:
 
 example-tidy:
 	@cd $(EXAMPLE_DIR) && $(GO) mod tidy
+
+# -----------------------------------------------------------------------------
+# Alva-like example (examples/alva-like, independent go.mod)
+
+.PHONY: alva-example-build alva-example-vet alva-example-tidy alva-example-run
+
+alva-example-build:
+	@echo "--> Building $(ALVA_EXAMPLE_DIR)"
+	@cd $(ALVA_EXAMPLE_DIR) && $(GO) build ./...
+
+alva-example-vet:
+	@cd $(ALVA_EXAMPLE_DIR) && $(GO) vet ./...
+
+alva-example-tidy:
+	@cd $(ALVA_EXAMPLE_DIR) && $(GO) mod tidy
+
+alva-example-run:
+	@echo "--> Running $(ALVA_EXAMPLE_DIR) (needs PAIRING_SECRET, MANAGER_BOT_TOKEN, MANAGER_BOT_USERNAME)"
+	@cd $(ALVA_EXAMPLE_DIR) && $(GO) run .
 
 # =============================================================================
 # Tooling
@@ -163,6 +202,7 @@ clean:
 	@echo "--> Cleaning generated artifacts"
 	@rm -f $(COVERAGE_FILE) $(COVERAGE_HTML)
 	@rm -f $(EXAMPLE_DIR)/minimal
+	@rm -f $(ALVA_EXAMPLE_DIR)/alva-like
 
 # =============================================================================
 # Help

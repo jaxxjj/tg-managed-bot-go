@@ -32,6 +32,22 @@ jobs:
         working-directory: examples/minimal
         run: go vet ./...
 
+      - name: go test -race (redis submodule)
+        working-directory: pairing/stores/redis
+        run: go test -race ./...
+
+      - name: go vet (redis submodule)
+        working-directory: pairing/stores/redis
+        run: go vet ./...
+
+      - name: go build (alva-like example)
+        working-directory: examples/alva-like
+        run: go build ./...
+
+      - name: go vet (alva-like example)
+        working-directory: examples/alva-like
+        run: go vet ./...
+
   lint:
     name: golangci-lint
     runs-on: ubuntu-latest
