@@ -106,7 +106,7 @@ func main() {
 	// (Alternative: set pairCfg.NonceFromRequest to a custom extractor.)
 	r.POST("/api/v1/pair", ginAdapt(server.PostPair(pairCfg)))
 	r.PUT("/api/v1/pair/:nonce", ginAdapt(server.PutPair(pairCfg)))
-	r.GET("/api/v1/pair/:nonce", ginAdapt(server.GetPair(pairCfg)))
+	r.DELETE("/api/v1/pair/:nonce", ginAdapt(server.DeletePair(pairCfg)))
 
 	// 5. Manager webhook. Telegram POSTs updates here.
 	r.POST("/tg/manager-webhook", managerWebhook(handler))

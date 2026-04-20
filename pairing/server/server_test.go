@@ -178,6 +178,75 @@ func TestBearerAuth_EmptySecretPanics(t *testing.T) {
 	_ = BearerAuth("")
 }
 
+func TestNonceFromRequest_Override(t *testing.T) {
+	// Verify the Config.NonceFromRequest override is actually invoked.
+	// Use a query-param extractor — a realistic shape for a router that
+	// stores params outside *http.Request entirely.
+	var extractorCalls int
+	extractor := func(r *http.Request) string {
+		extractorCalls++
+		return r.URL.Query().Get("nonce")
+	}
+
+	store := pairing.NewMemoryStore()
+	cfg := Config{
+		Store:              store,
+		ManagerBotUsername: "alva_manager_bot",
+		NoncePrefix:        "alva",
+		Authenticator:      BearerAuth("s"),
+		NonceFromRequest:   extractor,
+	}
+
+	// Pre-seed a pairing so DeletePair has something to find (Waiting).
+	n, err := nonce.New()
+	if err != nil {
+		t.Fatalf("nonce.New: %v", err)
+	}
+	if err := store.Put(context.Background(), n, time.Minute); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	// Route-less handler call so the default r.PathValue is empty —
+	// only NonceFromRequest can produce a usable nonce.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("DELETE", "/whatever?nonce="+n, nil)
+	DeletePair(cfg)(rec, req)
+
+	if extractorCalls != 1 {
+		t.Errorf("extractor call count = %d, want 1", extractorCalls)
+	}
+	if rec.Code != http.StatusNotFound { // Waiting — not yet completed
+		t.Errorf("status = %d, want 404 (waiting)", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "waiting") {
+		t.Errorf("body = %q, want 'waiting'", rec.Body.String())
+	}
+}
+
+func TestNonceFromRequest_FallsBackToDefault(t *testing.T) {
+	// When NonceFromRequest is nil, r.PathValue("nonce") is used.
+	// Setting the path value manually simulates Go 1.22+ ServeMux.
+	store := pairing.NewMemoryStore()
+	cfg := Config{
+		Store:              store,
+		ManagerBotUsername: "alva_manager_bot",
+		NoncePrefix:        "alva",
+		Authenticator:      BearerAuth("s"),
+	}
+
+	n, _ := nonce.New()
+	_ = store.Put(context.Background(), n, time.Minute)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("DELETE", "/pair/"+n, nil)
+	req.SetPathValue("nonce", n)
+	DeletePair(cfg)(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404 (waiting)", rec.Code)
+	}
+}
+
 // ---------- End-to-end HTTP flow ----------
 
 func TestFlow_HappyPath(t *testing.T) {
@@ -202,13 +271,13 @@ func TestFlow_HappyPath(t *testing.T) {
 		t.Errorf("ExpiresIn = %d, want 30", reg.ExpiresIn)
 	}
 
-	// 2. GET before complete → 404 waiting
-	status, body, _ = f.do(t, "GET", "/api/v1/pair/"+reg.Nonce, "", nil)
+	// 2. DELETE before complete → 404 waiting
+	status, body, _ = f.do(t, "DELETE", "/api/v1/pair/"+reg.Nonce, "", nil)
 	if status != http.StatusNotFound {
-		t.Errorf("GET waiting: status = %d, body = %s", status, body)
+		t.Errorf("DELETE waiting: status = %d, body = %s", status, body)
 	}
 	if !strings.Contains(string(body), `"status":"waiting"`) {
-		t.Errorf("GET waiting body: %s", body)
+		t.Errorf("DELETE waiting body: %s", body)
 	}
 
 	// 3. PUT with correct bearer
@@ -221,13 +290,13 @@ func TestFlow_HappyPath(t *testing.T) {
 		t.Errorf("PUT: status = %d, body = %s", status, body)
 	}
 
-	// 4. GET → 200 with token
-	status, body, cc = f.do(t, "GET", "/api/v1/pair/"+reg.Nonce, "", nil)
+	// 4. DELETE → 200 with token (atomic consume)
+	status, body, cc = f.do(t, "DELETE", "/api/v1/pair/"+reg.Nonce, "", nil)
 	if status != http.StatusOK {
-		t.Fatalf("GET ready: status = %d, body = %s", status, body)
+		t.Fatalf("DELETE ready: status = %d, body = %s", status, body)
 	}
 	if !strings.Contains(cc, "no-store") {
-		t.Errorf("GET ready missing no-store: %q", cc)
+		t.Errorf("DELETE ready missing no-store: %q", cc)
 	}
 	var tok TokenResponse
 	if err := json.Unmarshal(body, &tok); err != nil {
@@ -237,13 +306,13 @@ func TestFlow_HappyPath(t *testing.T) {
 		t.Errorf("token response: %+v", tok)
 	}
 
-	// 5. GET again → 404 not_found (one-time use)
-	status, body, _ = f.do(t, "GET", "/api/v1/pair/"+reg.Nonce, "", nil)
+	// 5. DELETE again → 404 not_found (one-time use)
+	status, body, _ = f.do(t, "DELETE", "/api/v1/pair/"+reg.Nonce, "", nil)
 	if status != http.StatusNotFound {
-		t.Errorf("GET after consume: status = %d", status)
+		t.Errorf("DELETE after consume: status = %d", status)
 	}
 	if !strings.Contains(string(body), `"status":"not_found"`) {
-		t.Errorf("GET after consume body: %s", body)
+		t.Errorf("DELETE after consume body: %s", body)
 	}
 }
 
@@ -311,9 +380,9 @@ func TestPutPair_DoubleComplete(t *testing.T) {
 	}
 }
 
-func TestGetPair_BadNonce(t *testing.T) {
+func TestDeletePair_BadNonce(t *testing.T) {
 	f := newFixture(t)
-	status, _, _ := f.do(t, "GET", "/api/v1/pair/shortx", "", nil)
+	status, _, _ := f.do(t, "DELETE", "/api/v1/pair/shortx", "", nil)
 	if status != http.StatusBadRequest {
 		t.Errorf("invalid nonce: status = %d, want 400", status)
 	}
@@ -371,7 +440,7 @@ func TestAllRoutes_NoStoreHeader(t *testing.T) {
 	}{
 		{"POST", "/api/v1/pair", "", nil},
 		{"PUT", "/api/v1/pair/" + n, "Bearer test-secret", CompleteRequest{Token: "x", BotUsername: "x_bot"}},
-		{"GET", "/api/v1/pair/" + n, "", nil},
+		{"DELETE", "/api/v1/pair/" + n, "", nil},
 		{"PUT", "/api/v1/pair/" + n, "", nil}, // 401 path
 	}
 	for _, c := range cases {

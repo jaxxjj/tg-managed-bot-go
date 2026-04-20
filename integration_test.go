@@ -327,10 +327,10 @@ func TestCrossPackage_HappyPath(t *testing.T) {
 		t.Fatalf("handler: %v", err)
 	}
 
-	// 4. Client: GET /api/v1/pair/:nonce  → 200 with the fake token.
-	status, body = f.httpDo("GET", "/api/v1/pair/"+reg.Nonce, "", nil)
+	// 4. Client: DELETE /api/v1/pair/:nonce  → 200 with the fake token.
+	status, body = f.httpDo("DELETE", "/api/v1/pair/"+reg.Nonce, "", nil)
 	if status != http.StatusOK {
-		t.Fatalf("GET /pair: status=%d body=%s", status, body)
+		t.Fatalf("DELETE /pair: status=%d body=%s", status, body)
 	}
 	var tok struct {
 		Token       string `json:"token"`
@@ -346,10 +346,10 @@ func TestCrossPackage_HappyPath(t *testing.T) {
 		t.Errorf("got bot_username %q, want %q", tok.BotUsername, expectedUsername)
 	}
 
-	// 5. Second GET → 404 not_found (one-time).
-	status, body = f.httpDo("GET", "/api/v1/pair/"+reg.Nonce, "", nil)
+	// 5. Second DELETE → 404 not_found (one-time).
+	status, body = f.httpDo("DELETE", "/api/v1/pair/"+reg.Nonce, "", nil)
 	if status != http.StatusNotFound || !strings.Contains(string(body), "not_found") {
-		t.Errorf("second GET: status=%d body=%s", status, body)
+		t.Errorf("second DELETE: status=%d body=%s", status, body)
 	}
 
 	// 6. No DMs fired (happy path uses no fallback).
@@ -400,7 +400,7 @@ func TestCrossPackage_NonceMismatchFallback(t *testing.T) {
 	}
 
 	// Verify: the pairing is still Waiting (client polls → 404 waiting).
-	status, body = f.httpDo("GET", "/api/v1/pair/"+reg.Nonce, "", nil)
+	status, body = f.httpDo("DELETE", "/api/v1/pair/"+reg.Nonce, "", nil)
 	if status != http.StatusNotFound || !strings.Contains(string(body), "waiting") {
 		t.Errorf("expected 404 waiting, got %d %s", status, body)
 	}
@@ -436,7 +436,7 @@ func TestCrossPackage_BotDeactivatedDuringCreation(t *testing.T) {
 		t.Errorf("want 1 fallback DM, got %d", len(f.tg.sentMessages()))
 	}
 	// Pairing still Waiting.
-	status, _ = f.httpDo("GET", "/api/v1/pair/"+reg.Nonce, "", nil)
+	status, _ = f.httpDo("DELETE", "/api/v1/pair/"+reg.Nonce, "", nil)
 	if status != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", status)
 	}
@@ -475,10 +475,10 @@ func TestCrossPackage_PutEndpointWithBearer(t *testing.T) {
 		t.Errorf("PUT with bearer: got %d, want 200", status)
 	}
 
-	// GET returns the externally-delivered token.
-	status, body = f.httpDo("GET", "/api/v1/pair/"+reg.Nonce, "", nil)
+	// DELETE returns the externally-delivered token.
+	status, body = f.httpDo("DELETE", "/api/v1/pair/"+reg.Nonce, "", nil)
 	if status != http.StatusOK {
-		t.Fatalf("GET: %d %s", status, body)
+		t.Fatalf("DELETE: %d %s", status, body)
 	}
 	var tok struct {
 		Token string `json:"token"`

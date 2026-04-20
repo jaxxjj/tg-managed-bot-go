@@ -3,9 +3,19 @@
 // [*http.ServeMux] (Go 1.22+) or any router that accepts
 // [http.HandlerFunc]:
 //
-//	POST /pair              client registers a nonce, receives deep link
-//	PUT  /pair/{nonce}      manager bot posts token (requires auth)
-//	GET  /pair/{nonce}      client polls; 200 once ready, 404 otherwise
+//	POST   /pair              client registers a nonce, receives deep link
+//	PUT    /pair/{nonce}      manager bot posts token (requires auth)
+//	DELETE /pair/{nonce}      client consumes the token; atomic + one-time
+//
+// The consume endpoint is DELETE rather than GET (a departure from
+// the hermes-agent Cloudflare Worker reference implementation) because
+// RFC 9110 defines GET as a safe, cacheable, idempotently-retriable
+// method. Consuming a one-time bearer token is none of those — a
+// browser, CDN, or proxy that speculatively retries a GET would
+// destroy the token before the real client sees the 200. DELETE has
+// the right HTTP semantics: intermediaries do not retry, the caller
+// gets exactly one successful response, and second DELETE calls
+// return 404 as expected.
 //
 // Every response carries Cache-Control: no-store — the tokens and nonces
 // flowing through this endpoint are single-use bearer credentials and

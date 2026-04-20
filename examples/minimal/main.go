@@ -1,10 +1,16 @@
 // Minimal Gin HTTP server demonstrating the pairing protocol end-to-end.
 //
-// Routes (mirroring the hermes-agent shape):
+// Routes:
 //
-//	POST /pair                 — client registers a new nonce, receives deep link
-//	PUT  /pair/:nonce          — manager bot posts token (auth via Bearer shared secret)
-//	GET  /pair/:nonce          — client polls; 200 once ready, 404 otherwise
+//	POST   /pair                 — client registers a new nonce, receives deep link
+//	PUT    /pair/:nonce          — manager bot posts token (auth via Bearer shared secret)
+//	DELETE /pair/:nonce          — client consumes; 200 once ready, 404 otherwise (atomic, one-time)
+//
+// DELETE rather than GET for the consume endpoint: the handler is
+// destructive (FetchAndDelete) and a safe-method GET would let browsers,
+// CDNs, or proxies speculatively retry and drain the token before the
+// real client sees the response. See pairing/server/doc.go for the
+// full RFC 9110 rationale.
 //
 // Run:
 //
@@ -22,8 +28,8 @@
 //	  -H "Content-Type: application/json" \
 //	  -d '{"token":"123456789:FAKE","bot_username":"alva_<nonce>_bot"}'
 //
-//	# 3. Client polls.
-//	curl -s localhost:8080/pair/<nonce> | jq
+//	# 3. Client consumes.
+//	curl -s -X DELETE localhost:8080/pair/<nonce> | jq
 package main
 
 import (
@@ -61,7 +67,7 @@ func main() {
 
 	r.POST("/pair", registerHandler(store))
 	r.PUT("/pair/:nonce", completeHandler(store, secret))
-	r.GET("/pair/:nonce", fetchHandler(store))
+	r.DELETE("/pair/:nonce", fetchHandler(store))
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -158,9 +164,11 @@ func completeHandler(store pairing.Store, secret string) gin.HandlerFunc {
 	}
 }
 
-// fetchHandler is the client-side poll. Returns 200 once the pairing is
-// Ready (and deletes the entry — one-time use). Returns 404 otherwise;
-// the body distinguishes "still waiting" from "never existed".
+// fetchHandler is the client-side consume. Returns 200 once the pairing
+// is Ready (and atomically deletes the entry — one-time use). Returns 404
+// otherwise; the body distinguishes "still waiting" from "never existed".
+// Bound to DELETE so intermediaries do not speculatively retry a
+// destructive read (the same reasoning as pairing/server.DeletePair).
 func fetchHandler(store pairing.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		n := c.Param("nonce")

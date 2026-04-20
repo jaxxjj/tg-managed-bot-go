@@ -246,6 +246,97 @@ func TestSendMessage_Success(t *testing.T) {
 	}
 }
 
+// ---------- SetWebhook ----------
+
+func TestSetWebhook_Success(t *testing.T) {
+	c := newMock(t, expectMethod(t, http.MethodPost, "setWebhook", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			URL            string   `json:"url"`
+			AllowedUpdates []string `json:"allowed_updates,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode: %v", err)
+		}
+		if req.URL != "https://example.com/hook" {
+			t.Errorf("url = %q", req.URL)
+		}
+		if len(req.AllowedUpdates) != 1 || req.AllowedUpdates[0] != "message" {
+			t.Errorf("allowed_updates = %v", req.AllowedUpdates)
+		}
+		writeOK(w, `true`)
+	}))
+
+	err := c.SetWebhook(context.Background(), "https://example.com/hook", []string{"message"})
+	if err != nil {
+		t.Fatalf("SetWebhook: %v", err)
+	}
+}
+
+func TestSetWebhook_NilAllowedUpdates(t *testing.T) {
+	// Nil allowedUpdates should be omitted from the JSON body so
+	// Telegram applies its default (all types except chat_member).
+	c := newMock(t, expectMethod(t, http.MethodPost, "setWebhook", func(w http.ResponseWriter, r *http.Request) {
+		var raw map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+			t.Errorf("decode: %v", err)
+		}
+		if _, present := raw["allowed_updates"]; present {
+			t.Errorf("allowed_updates should be omitted when nil, body = %v", raw)
+		}
+		writeOK(w, `true`)
+	}))
+
+	if err := c.SetWebhook(context.Background(), "https://example.com/hook", nil); err != nil {
+		t.Fatalf("SetWebhook: %v", err)
+	}
+}
+
+func TestSetWebhook_RejectsEmptyURL(t *testing.T) {
+	// No HTTP call should be made — validation is client-side.
+	c := newMock(t, func(_ http.ResponseWriter, r *http.Request) {
+		t.Errorf("should not reach server; got request for %q", r.URL.Path)
+	})
+
+	err := c.SetWebhook(context.Background(), "", nil)
+	if err == nil {
+		t.Fatal("expected error for empty URL")
+	}
+	if !strings.Contains(err.Error(), "required") {
+		t.Errorf("error should mention 'required': %v", err)
+	}
+}
+
+func TestSetWebhook_RejectsHTTP(t *testing.T) {
+	// Telegram rejects plain HTTP with 400; catch client-side.
+	c := newMock(t, func(_ http.ResponseWriter, r *http.Request) {
+		t.Errorf("should not reach server; got request for %q", r.URL.Path)
+	})
+
+	err := c.SetWebhook(context.Background(), "http://example.com/hook", nil)
+	if err == nil {
+		t.Fatal("expected error for plain-HTTP URL")
+	}
+	if !strings.Contains(err.Error(), "https://") {
+		t.Errorf("error should mention https://: %v", err)
+	}
+}
+
+func TestSetWebhook_ServerRejects(t *testing.T) {
+	// Server-side error (e.g., invalid cert) should surface as APIError.
+	c := newMock(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeErr(w, 400, "Bad Request: webhook URL not valid")
+	})
+
+	err := c.SetWebhook(context.Background(), "https://valid-looking.example/hook", nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != 400 {
+		t.Errorf("want APIError{400}, got %v", err)
+	}
+}
+
 func TestSendMessage_ChatNotFound(t *testing.T) {
 	c := newMock(t, func(w http.ResponseWriter, _ *http.Request) {
 		writeErr(w, 400, "Bad Request: chat not found")

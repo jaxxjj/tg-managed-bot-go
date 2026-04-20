@@ -32,7 +32,7 @@ type CompleteRequest struct {
 	BotUsername string `json:"bot_username"`
 }
 
-// TokenResponse is the body returned by [GetPair] on HTTP 200 (ready).
+// TokenResponse is the body returned by [DeletePair] on HTTP 200 (ready).
 type TokenResponse struct {
 	Token       string `json:"token"`
 	BotUsername string `json:"bot_username"`
@@ -70,7 +70,7 @@ func writeError(w http.ResponseWriter, r *http.Request, status int, msg string) 
 	writeJSON(w, r, status, map[string]string{"error": msg})
 }
 
-// writeStatus writes `{"status":"<label>"}`. Used by [GetPair] to
+// writeStatus writes `{"status":"<label>"}`. Used by [DeletePair] to
 // distinguish waiting vs not-found without bleeding protocol details.
 func writeStatus(w http.ResponseWriter, r *http.Request, status int, label string) {
 	writeJSON(w, r, status, map[string]string{"status": label})
@@ -190,10 +190,16 @@ func PutPair(cfg Config) http.HandlerFunc {
 	})
 }
 
-// GetPair returns the handler for "GET /pair/{nonce}": poll the store.
-// 200 returns the token (one-time). 404 distinguishes "still waiting"
+// DeletePair returns the handler for "DELETE /pair/{nonce}" — the
+// client's consume-token request. 200 returns the token and atomically
+// deletes the pairing (one-time). 404 distinguishes "still waiting"
 // from "never existed or already consumed" via the body's status field.
-func GetPair(cfg Config) http.HandlerFunc {
+//
+// DELETE (not GET) so that browsers, proxies, and CDNs do not retry
+// speculatively — a destructive consume behind a safe GET would let
+// intermediaries irreversibly drain the token before the client sees
+// the response.
+func DeletePair(cfg Config) http.HandlerFunc {
 	extractNonce := cfg.effectiveNonceExtractor()
 	return noStore(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()

@@ -65,6 +65,14 @@ type Handler struct {
 // return a wrapped error so callers can retry on their own cadence.
 // Soft failures — nonce mismatch, expired pairing, bot-already-deleted
 // — invoke [Handler.OnFallback] and return its error (nil on success).
+//
+// Idempotency. Telegram retries webhook deliveries until it receives a
+// 2xx, and some deployments run the handler in multiple replicas.
+// HandleUpdate is safe to call on the same update more than once:
+// [pairing.ErrInvalidState] from Store.Complete (the pairing was already
+// Ready) is treated as success, not as a fallback trigger — emitting a
+// fallback DM in that case would confuse the user whose first delivery
+// succeeded.
 func (h *Handler) HandleUpdate(ctx context.Context, u *tgapi.Update) error {
 	if u == nil || u.Message == nil || u.Message.ManagedBotCreated == nil {
 		return nil
@@ -105,19 +113,28 @@ func (h *Handler) HandleUpdate(ctx context.Context, u *tgapi.Update) error {
 	}
 
 	// Stage 3: complete the pairing.
-	err = h.Store.Complete(ctx, n, token, event.Username)
+	completeErr := h.Store.Complete(ctx, n, token, event.Username)
 	switch {
-	case err == nil:
+	case completeErr == nil:
 		logger.Info().Str("nonce", n).Msg("manager: pairing completed")
 		return nil
-	case errors.Is(err, pairing.ErrNotFound), errors.Is(err, pairing.ErrInvalidState):
-		// Pairing expired or already completed — neither is actionable
-		// beyond telling the user to restart the flow.
-		logger.Warn().Err(err).Str("nonce", n).Msg("manager: pairing unavailable; running fallback")
+	case errors.Is(completeErr, pairing.ErrInvalidState):
+		// Pairing is already Ready. Happens when Telegram retries a
+		// webhook (no 2xx was observed in time) or two replicas of the
+		// handler see the same update. The first delivery succeeded;
+		// a fallback DM here would confuse a user who has already been
+		// handed their token. Log and return nil — idempotent success.
+		logger.Info().Str("nonce", n).Msg("manager: pairing already completed (duplicate delivery); treating as idempotent success")
+		return nil
+	case errors.Is(completeErr, pairing.ErrNotFound):
+		// Pairing expired or was never registered — tell the user to
+		// restart the flow. Distinct from ErrInvalidState above: this
+		// one genuinely has no prior successful handoff to dedupe against.
+		logger.Warn().Err(completeErr).Str("nonce", n).Msg("manager: pairing not found or expired; running fallback")
 		return h.runFallback(ctx, creatorTgID, event)
 	default:
-		logger.Error().Err(err).Str("nonce", n).Msg("manager: store.Complete failed")
-		return fmt.Errorf("manager: store.Complete: %w", err)
+		logger.Error().Err(completeErr).Str("nonce", n).Msg("manager: store.Complete failed")
+		return fmt.Errorf("manager: store.Complete: %w", completeErr)
 	}
 }
 

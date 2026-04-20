@@ -20,6 +20,13 @@ const DefaultHTTPTimeout = 30 * time.Second
 // the full scope.
 //
 // A zero-value Client is not usable; construct one via [NewClient].
+//
+// Sensitive data handling: the bot token is embedded in every request
+// URL as "/bot<TOKEN>/<method>" per the Telegram Bot API contract.
+// Callers installing a custom [http.Client] via [WithHTTPClient] — for
+// logging, tracing, or metrics middleware — should scrub the URL
+// before emitting it anywhere durable (logs, spans) or a token leak
+// becomes trivial.
 type Client struct {
 	token string
 	base  string

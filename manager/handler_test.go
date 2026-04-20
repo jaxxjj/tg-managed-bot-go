@@ -297,7 +297,16 @@ func TestHandleUpdate_PairingExpired_RunsFallback(t *testing.T) {
 	}
 }
 
-func TestHandleUpdate_AlreadyCompleted_RunsFallback(t *testing.T) {
+// TestHandleUpdate_AlreadyCompleted_Idempotent pins down the idempotency
+// contract: when the pairing is already Ready (ErrInvalidState), a second
+// delivery of the same managed_bot_created event is a silent success. It
+// must NOT fire the fallback DM — doing so would confuse a user whose
+// first delivery succeeded and who has already been handed their token.
+//
+// Triggers in practice:
+//   - Telegram retrying the webhook because the first 2xx took too long.
+//   - Two handler replicas observing the same update.
+func TestHandleUpdate_AlreadyCompleted_Idempotent(t *testing.T) {
 	ctx := context.Background()
 	store := pairing.NewMemoryStore()
 	n, _ := nonce.New()
@@ -321,8 +330,20 @@ func TestHandleUpdate_AlreadyCompleted_RunsFallback(t *testing.T) {
 	if err := h.HandleUpdate(ctx, newUpdate(42, 100, username)); err != nil {
 		t.Errorf("HandleUpdate: %v", err)
 	}
-	if !fallbackCalled {
-		t.Errorf("expected fallback on ErrInvalidState")
+	if fallbackCalled {
+		t.Errorf("duplicate delivery must NOT trigger fallback DM")
+	}
+	if len(fake.dms()) != 0 {
+		t.Errorf("duplicate delivery must not emit any DMs: %+v", fake.dms())
+	}
+	// Pairing remains Ready with the original token — the retry did not
+	// overwrite it.
+	entry, err := store.FetchAndDelete(ctx, n)
+	if err != nil {
+		t.Fatalf("FetchAndDelete: %v", err)
+	}
+	if entry.Token != "prev" {
+		t.Errorf("idempotent retry should preserve original token; got %q", entry.Token)
 	}
 }
 

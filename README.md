@@ -52,7 +52,7 @@ No `@BotFather /newbot`, no token copy-paste. This package implements the
 | [`link`](./link) | Build `https://t.me/newbot/...` deep links; validate & sanitize bot usernames. Pure functions, no I/O. |
 | [`nonce`](./nonce) | Generate and parse pairing nonces (Crockford base32). Pure functions. |
 | [`pairing`](./pairing) | `Store` interface for the token handoff protocol, plus an in-memory implementation for tests. Bring your own Redis / KV / Postgres. |
-| [`pairing/server`](./pairing/server) | Stdlib-only `http.HandlerFunc`s (POST/PUT/GET `/pair`) with `Cache-Control: no-store` and pluggable `Authenticator`. Uses Go 1.22 ServeMux path patterns. |
+| [`pairing/server`](./pairing/server) | Stdlib-only `http.HandlerFunc`s (`POST /pair`, `PUT /pair/{nonce}`, `DELETE /pair/{nonce}`) with `Cache-Control: no-store` and pluggable `Authenticator`. Uses Go 1.22 ServeMux path patterns. DELETE (not GET) for the consume endpoint so browsers / CDNs / proxies do not speculatively retry a destructive read. |
 | [`pairing/stores/redis`](./pairing/stores/redis) | Redis-backed `Store` built on `go-redis/v9` with atomic Lua scripts. Separate go.mod so go-redis does not pollute the root dep graph. |
 | [`tgapi`](./tgapi) | Minimal Bot API client for the five methods Managed Bots operation needs: `getMe`, `getManagedBotToken`, `replaceManagedBotToken`, `getWebhookInfo`, `sendMessage`. Sentinel errors with `errors.Is` / `errors.As`. |
 | [`manager`](./manager) | `Handler.HandleUpdate` drives the manager-bot side: extract nonce → fetch token → complete pairing, with DM fallback. Narrow `Client` interface for testability. |

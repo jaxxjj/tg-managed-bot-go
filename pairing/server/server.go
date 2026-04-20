@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net/http"
@@ -112,6 +113,12 @@ func (c *Config) effectiveNonceExtractor() func(*http.Request) string {
 // common case; callers with richer requirements (HMAC signatures,
 // Origin checks, mTLS, IP allowlists) should write their own.
 //
+// The comparison uses [subtle.ConstantTimeCompare] so an attacker
+// cannot learn the secret by timing Authorization header probes. A
+// Bearer token's length may leak (the comparison fast-paths on length
+// mismatch — unavoidable without also fixed-padding the header) but
+// the secret content itself is compared in constant time.
+//
 // Panics when secret is empty. A blank secret would match a bare
 // "Authorization: Bearer " header, turning PUT /pair/{nonce} into an
 // unauthenticated token-injection endpoint. Empty values almost always
@@ -122,9 +129,10 @@ func BearerAuth(secret string) func(*http.Request) bool {
 		panic("server: BearerAuth called with empty secret — this would fail-open. " +
 			"Ensure the secret env var / config value is set.")
 	}
-	expected := "Bearer " + secret
+	expected := []byte("Bearer " + secret)
 	return func(r *http.Request) bool {
-		return r.Header.Get("Authorization") == expected
+		got := []byte(r.Header.Get("Authorization"))
+		return subtle.ConstantTimeCompare(got, expected) == 1
 	}
 }
 
@@ -135,9 +143,9 @@ func BearerAuth(secret string) func(*http.Request) bool {
 //
 // Routes installed:
 //
-//	POST <prefix>/pair
-//	PUT  <prefix>/pair/{nonce}
-//	GET  <prefix>/pair/{nonce}
+//	POST   <prefix>/pair
+//	PUT    <prefix>/pair/{nonce}
+//	DELETE <prefix>/pair/{nonce}
 //
 // The handlers use Go 1.22+ ServeMux pattern syntax ({nonce} + method
 // prefix); Mount is a no-op on earlier runtimes.
@@ -151,6 +159,6 @@ func Mount(mux *http.ServeMux, cfg Config, prefix string) error {
 	}
 	mux.HandleFunc("POST "+prefix+"/pair", PostPair(cfg))
 	mux.HandleFunc("PUT "+prefix+"/pair/{nonce}", PutPair(cfg))
-	mux.HandleFunc("GET "+prefix+"/pair/{nonce}", GetPair(cfg))
+	mux.HandleFunc("DELETE "+prefix+"/pair/{nonce}", DeletePair(cfg))
 	return nil
 }

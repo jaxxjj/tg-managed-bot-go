@@ -181,16 +181,28 @@ func (c *Client) SendMessage(ctx context.Context, chatID int64, text string) err
 	return c.do(ctx, "sendMessage", req, nil)
 }
 
-// SetWebhook registers url as the webhook endpoint for this bot. Pass an
-// empty url to remove the webhook (equivalent to [Client.deleteWebhook],
-// not exposed here). allowedUpdates may be nil to receive all update
-// types except chat_member (matching Telegram's default).
+// SetWebhook registers url as the webhook endpoint for this bot.
+// allowedUpdates may be nil to receive all update types except
+// chat_member (matching Telegram's default).
 //
 // Primary use in this package: the manager bot's own webhook
 // registration at startup so managed_bot_created events arrive.
 //
+// Client-side validation: url must start with "https://" — Telegram
+// rejects plain HTTP with 400. Catching this locally saves a round
+// trip and surfaces the error closer to the misconfiguration. Pass
+// an empty url to get a clear "url is required" error; for unset
+// behavior use the underlying deleteWebhook method (not exposed here
+// since the Managed Bots workflow never needs it).
+//
 // Reference: https://core.telegram.org/bots/api#setwebhook
 func (c *Client) SetWebhook(ctx context.Context, url string, allowedUpdates []string) error {
+	if url == "" {
+		return fmt.Errorf("tgapi setWebhook: url is required (use deleteWebhook to unset)")
+	}
+	if !strings.HasPrefix(url, "https://") {
+		return fmt.Errorf("tgapi setWebhook: url must start with https:// (got %q)", url)
+	}
 	req := struct {
 		URL            string   `json:"url"`
 		AllowedUpdates []string `json:"allowed_updates,omitempty"`

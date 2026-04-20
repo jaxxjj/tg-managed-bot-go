@@ -10,8 +10,14 @@ import (
 // against live observations. Callers populate this from their persistence
 // layer (DB, cache, etc.).
 type State struct {
-	// BotID is the Telegram user-id of the managed bot. Included in
-	// [Drift.Detail] strings for diagnostics; not used for comparison.
+	// BotID is the Telegram user-id of the managed bot. When non-zero
+	// and a successful getMe observation is available, CheckDrift emits
+	// [DriftIdentityMismatch] if [Observed.Me.ID] does not match — the
+	// strongest signal that the bot's record has been confused with
+	// another bot's token (for example, a wrong row looked up in the
+	// managed_bots table or an encrypted-at-rest token that decrypted
+	// to an unexpected bot). Leave zero to disable the check (useful
+	// immediately after creation before the first getMe completes).
 	BotID int64
 
 	// ExpectedWebhookURL is the URL the caller set via setWebhook.
@@ -58,6 +64,12 @@ const (
 	DriftWebhookHijacked
 	DriftPrivacyRegression
 	DriftUsernameChanged
+	// DriftIdentityMismatch fires when getMe returns a bot whose id does
+	// not match the stored [State.BotID] — the stored token belongs to
+	// a different bot entirely. Caller almost certainly has a wrong row
+	// in the managed_bots table or a token/bot_id swap elsewhere; do
+	// NOT use this bot for any further operation until resolved.
+	DriftIdentityMismatch
 )
 
 // String returns a stable identifier for each kind, suitable for log
@@ -78,6 +90,8 @@ func (k DriftKind) String() string {
 		return "privacy_regression"
 	case DriftUsernameChanged:
 		return "username_changed"
+	case DriftIdentityMismatch:
+		return "identity_mismatch"
 	default:
 		return fmt.Sprintf("drift(%d)", k)
 	}
@@ -96,11 +110,22 @@ type Drift struct {
 // be called from any goroutine and from tests without setup. Output order
 // is deterministic (identity, then webhook, then bot-metadata).
 //
-// Terminal getMe failures ([DriftDeleted], [DriftTokenRotated]) short-
-// circuit the bot-metadata comparisons — there is nothing actionable
-// to report after "bot deleted". Webhook detection still runs when
-// possible because the webhook status is maintained separately by
-// Telegram and the two can independently be broken.
+// Short-circuit behavior:
+//
+//   - [DriftDeleted], [DriftTokenRotated], and [DriftIdentityMismatch]
+//     are terminal — when getMe produces one of these, CheckDrift
+//     returns immediately with just that single drift. There is nothing
+//     actionable to report after "bot deleted", "token invalid", or
+//     "token belongs to a different bot entirely".
+//
+//   - [DriftUnreachable] from getMe does NOT short-circuit. The
+//     webhook endpoint is maintained separately by Telegram and may
+//     still be reachable; checking it independently is worth the
+//     extra signal.
+//
+//   - A getWebhookInfo failure, with a successful getMe, also emits
+//     [DriftUnreachable] (alongside any further bot-metadata drifts
+//     from the successful getMe).
 func CheckDrift(state State, obs Observed) []Drift {
 	var drifts []Drift
 
@@ -154,6 +179,18 @@ func CheckDrift(state State, obs Observed) []Drift {
 	// already recorded DriftUnreachable from stage 1.
 	if obs.Me == nil {
 		return drifts
+	}
+
+	// Stage 3a: identity. If the stored BotID is set and the live
+	// getMe returns a different id, the caller's token <-> bot_id
+	// mapping is wrong. Short-circuit — every later metadata check
+	// would be noise comparing attributes of the wrong bot.
+	if state.BotID != 0 && obs.Me.ID != state.BotID {
+		return append(drifts, Drift{
+			Kind: DriftIdentityMismatch,
+			Detail: fmt.Sprintf("getMe returned bot id %d, expected %d",
+				obs.Me.ID, state.BotID),
+		})
 	}
 
 	if obs.Me.CanReadAllGroupMessages != state.ExpectPrivacyOff {
