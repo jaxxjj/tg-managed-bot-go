@@ -7,7 +7,19 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
+
+// bodyPreview returns a bounded, newline-scrubbed preview of body,
+// suitable for inclusion in error messages without spraying HTML
+// across a log line.
+func bodyPreview(body []byte, max int) string {
+	s := string(body)
+	if len(s) > max {
+		s = s[:max] + "..."
+	}
+	return strings.ReplaceAll(s, "\n", " ")
+}
 
 // apiResponse is Telegram's envelope format. Every Bot API response is
 // either `{"ok":true,"result":...}` or `{"ok":false,"error_code":...,
@@ -54,9 +66,24 @@ func (c *Client) do(ctx context.Context, method string, req, resp any) error {
 	}
 	defer func() { _ = httpResp.Body.Close() }()
 
+	// Read the body up-front so a decode failure can include a preview
+	// of what we actually got (e.g. an HTML 502 from a proxy). The Bot
+	// API's largest practical response is well under 64 KiB.
+	bodyBytes, err := io.ReadAll(io.LimitReader(httpResp.Body, 1<<20))
+	if err != nil {
+		return fmt.Errorf("tgapi %s: read body (status=%d): %w", method, httpResp.StatusCode, err)
+	}
+
 	var env apiResponse
-	if err := json.NewDecoder(httpResp.Body).Decode(&env); err != nil {
-		return fmt.Errorf("tgapi %s: decode envelope: %w", method, err)
+	if err := json.Unmarshal(bodyBytes, &env); err != nil {
+		// Non-JSON response: almost always an intermediate proxy / LB
+		// returning HTML. Include status + body preview so the caller
+		// can diagnose "what returned this junk".
+		return fmt.Errorf(
+			"tgapi %s: decode envelope (status=%d, content_type=%q, body_preview=%q): %w",
+			method, httpResp.StatusCode, httpResp.Header.Get("Content-Type"),
+			bodyPreview(bodyBytes, 200), err,
+		)
 	}
 
 	if !env.OK {

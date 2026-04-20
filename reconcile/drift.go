@@ -130,10 +130,18 @@ func CheckDrift(state State, obs Observed) []Drift {
 		// can fail independently and the webhook signal is worth having.
 	}
 
-	// Stage 2: webhook. Only compare when the caller set an expected URL
-	// and we actually observed something.
+	// Stage 2: webhook. Only compare when the caller set an expected URL.
+	// A WebhookErr (separate from GetMeErr — the two endpoints can fail
+	// independently) is itself signal: we cannot verify drift, which is
+	// an unreachable-style condition worth surfacing.
 	if state.ExpectedWebhookURL != "" {
-		if obs.WebhookErr == nil && obs.Webhook != nil && obs.Webhook.URL != state.ExpectedWebhookURL {
+		switch {
+		case obs.WebhookErr != nil:
+			drifts = append(drifts, Drift{
+				Kind:   DriftUnreachable,
+				Detail: fmt.Sprintf("bot %d getWebhookInfo failed (%v)", state.BotID, obs.WebhookErr),
+			})
+		case obs.Webhook != nil && obs.Webhook.URL != state.ExpectedWebhookURL:
 			drifts = append(drifts, Drift{
 				Kind: DriftWebhookHijacked,
 				Detail: fmt.Sprintf("webhook %q != expected %q",

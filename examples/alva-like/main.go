@@ -86,9 +86,15 @@ func main() {
 		PairingTTL:         15 * time.Minute,
 		Authenticator:      server.BearerAuth(cfg.PairingSecret),
 	}
-	r.POST("/api/v1/pair", gin.WrapF(server.PostPair(pairCfg)))
-	r.PUT("/api/v1/pair/:nonce", gin.WrapF(server.PutPair(pairCfg)))
-	r.GET("/api/v1/pair/:nonce", gin.WrapF(server.GetPair(pairCfg)))
+	// gin.WrapF hands the handler a bare *http.Request — Gin's own route
+	// parameters live in gin.Context.Params and are NOT populated into
+	// http.Request. pairing/server handlers extract :nonce via
+	// r.PathValue("nonce") by default, so wrap through ginAdapt which
+	// copies gin params into the request via SetPathValue before dispatch.
+	// (Alternative: set pairCfg.NonceFromRequest to a custom extractor.)
+	r.POST("/api/v1/pair", ginAdapt(server.PostPair(pairCfg)))
+	r.PUT("/api/v1/pair/:nonce", ginAdapt(server.PutPair(pairCfg)))
+	r.GET("/api/v1/pair/:nonce", ginAdapt(server.GetPair(pairCfg)))
 
 	// 5. Manager webhook. Telegram POSTs updates here.
 	r.POST("/tg/manager-webhook", managerWebhook(handler))
@@ -169,6 +175,22 @@ func getenv(key, fallback string) string {
 	return fallback
 }
 
+// ginAdapt converts a stdlib http.HandlerFunc into a gin.HandlerFunc
+// and copies gin's named path parameters into the *http.Request via
+// SetPathValue (Go 1.22+). That lets the wrapped handler call
+// r.PathValue("nonce") and get the expected string, even though the
+// outer router is Gin rather than the Go 1.22 ServeMux the package
+// defaults to.
+func ginAdapt(h http.HandlerFunc) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		r := c.Request
+		for _, p := range c.Params {
+			r.SetPathValue(p.Key, p.Value)
+		}
+		h(c.Writer, r)
+	}
+}
+
 // requestLogger is a tiny gin middleware that puts a zerolog per-request
 // logger into the request context, so downstream handlers using
 // zerolog.Ctx(ctx) get structured fields for free.
@@ -237,7 +259,11 @@ func managerWebhook(h *manager.Handler) gin.HandlerFunc {
 //	GET /diag/drift/:bot_id  (header) X-Bot-Token: <child token>
 //
 // so the example stays self-contained without a persistence layer.
-func driftProbe(manager *tgapi.Client) gin.HandlerFunc {
+// driftProbe parameter is named mgrAPI rather than "manager" so it does
+// not shadow the imported github.com/alva-ai/tg-managed-bot-go/manager
+// package (reachable from this file's broader scope even though this
+// function does not itself use it).
+func driftProbe(mgrAPI *tgapi.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		botIDStr := c.Param("bot_id")
 		botID, err := strconv.ParseInt(botIDStr, 10, 64)
@@ -248,12 +274,12 @@ func driftProbe(manager *tgapi.Client) gin.HandlerFunc {
 
 		// Pull the child token out-of-band via header for the demo.
 		// Real apps look this up in the managed_bots DB; the only reason
-		// manager is passed in is to show the alternative: you could
-		// instead call manager.GetManagedBotToken(ctx, botID) for a
+		// mgrAPI is passed in is to show the alternative: you could
+		// instead call mgrAPI.GetManagedBotToken(ctx, botID) for a
 		// fresh copy every time (and pay the extra round-trip).
 		childToken := c.GetHeader("X-Bot-Token")
 		if childToken == "" {
-			fresh, err := manager.GetManagedBotToken(c.Request.Context(), botID)
+			fresh, err := mgrAPI.GetManagedBotToken(c.Request.Context(), botID)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"error": "no X-Bot-Token header and getManagedBotToken failed: " + err.Error(),

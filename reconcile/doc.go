@@ -23,7 +23,8 @@
 //   - [DriftTokenRotated] token is invalid (ErrUnauthorized) — typically
 //     because the user ran /token in @BotFather or
 //     [tgapi.Client.ReplaceManagedBotToken] was called elsewhere
-//   - [DriftUnreachable] transport-level failure; state is unknown
+//   - [DriftUnreachable] transport-level failure from either getMe
+//     or getWebhookInfo; at least one signal is in an unknown state
 //   - [DriftWebhookHijacked] actual webhook differs from the expected
 //     URL configured by the caller
 //   - [DriftPrivacyRegression] bot's group-privacy setting differs from

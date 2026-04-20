@@ -2,6 +2,8 @@ module github.com/alva-ai/tg-managed-bot-go/examples/alva-like
 
 go 1.25.0
 
+toolchain go1.25.7
+
 replace github.com/alva-ai/tg-managed-bot-go => ../..
 
 replace github.com/alva-ai/tg-managed-bot-go/pairing/stores/redis => ../../pairing/stores/redis

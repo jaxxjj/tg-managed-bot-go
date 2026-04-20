@@ -169,15 +169,18 @@ func TestCheckDrift_WebhookCheck_SkipsWhenExpectedEmpty(t *testing.T) {
 	}
 }
 
-func TestCheckDrift_WebhookCheck_SkipsOnWebhookErr(t *testing.T) {
-	// Webhook fetch itself failed — we cannot tell drift vs transport.
+func TestCheckDrift_WebhookErr_EmitsUnreachable(t *testing.T) {
+	// getWebhookInfo failure is itself signal: we cannot verify the
+	// webhook. Emit DriftUnreachable so callers see that the channel
+	// is in an unknown state rather than silently accepting "no drift".
 	state := State{ExpectedWebhookURL: "https://alva.example/hook"}
 	obs := Observed{
 		Me:         &tgapi.User{},
 		WebhookErr: errors.New("i/o timeout"),
 	}
-	if ds := CheckDrift(state, obs); len(ds) != 0 {
-		t.Errorf("expected no drift on WebhookErr, got %v", ds)
+	ds := CheckDrift(state, obs)
+	if !equalKinds(driftKinds(ds), []DriftKind{DriftUnreachable}) {
+		t.Errorf("got %v, want [DriftUnreachable]", driftKinds(ds))
 	}
 }
 

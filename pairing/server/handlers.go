@@ -133,6 +133,7 @@ func PostPair(cfg Config) http.HandlerFunc {
 // the caller (manager bot), decode the token+username body, and mark
 // the pairing Ready.
 func PutPair(cfg Config) http.HandlerFunc {
+	extractNonce := cfg.effectiveNonceExtractor()
 	return noStore(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		logger := zerolog.Ctx(ctx)
@@ -145,7 +146,7 @@ func PutPair(cfg Config) http.HandlerFunc {
 			return
 		}
 
-		n := r.PathValue("nonce")
+		n := extractNonce(r)
 		if err := nonce.Validate(n); err != nil {
 			writeError(w, r, http.StatusBadRequest, err.Error())
 			return
@@ -185,11 +186,12 @@ func PutPair(cfg Config) http.HandlerFunc {
 // 200 returns the token (one-time). 404 distinguishes "still waiting"
 // from "never existed or already consumed" via the body's status field.
 func GetPair(cfg Config) http.HandlerFunc {
+	extractNonce := cfg.effectiveNonceExtractor()
 	return noStore(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		logger := zerolog.Ctx(ctx)
 
-		n := r.PathValue("nonce")
+		n := extractNonce(r)
 		if err := nonce.Validate(n); err != nil {
 			writeError(w, r, http.StatusBadRequest, err.Error())
 			return

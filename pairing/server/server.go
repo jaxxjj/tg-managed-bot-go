@@ -55,6 +55,20 @@ type Config struct {
 	// for arbitrary nonces. Use [BearerAuth] for a shared-secret
 	// implementation.
 	Authenticator func(*http.Request) bool
+
+	// NonceFromRequest optionally overrides how the nonce is extracted
+	// from an incoming request. The default is
+	//
+	//	func(r *http.Request) string { return r.PathValue("nonce") }
+	//
+	// which relies on Go 1.22+ [*http.ServeMux] path patterns
+	// (e.g. "PUT /pair/{nonce}"). Override when mounting the handlers
+	// under a router that stores route parameters elsewhere (Gin's
+	// gin.Context.Param, Echo's c.Param, Chi's chi.URLParam, etc.) —
+	// either by populating the request's path values via
+	// r.SetPathValue in an adapter, or by pointing this at a function
+	// that reads from the router's context directly.
+	NonceFromRequest func(*http.Request) string
 }
 
 // Validate reports whether c has all required fields set. Mount calls
@@ -82,6 +96,15 @@ func (c *Config) effectiveTTL() time.Duration {
 		return c.PairingTTL
 	}
 	return DefaultPairingTTL
+}
+
+// effectiveNonceExtractor returns NonceFromRequest when set, otherwise
+// the default r.PathValue("nonce") extractor.
+func (c *Config) effectiveNonceExtractor() func(*http.Request) string {
+	if c.NonceFromRequest != nil {
+		return c.NonceFromRequest
+	}
+	return func(r *http.Request) string { return r.PathValue("nonce") }
 }
 
 // BearerAuth returns an [Authenticator] that accepts requests carrying
