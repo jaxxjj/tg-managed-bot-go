@@ -70,7 +70,7 @@ func SanitizeUsername(raw string) (string, error) {
 	s = b.String()
 
 	// Ensure starts with a letter.
-	if s == "" || !(s[0] >= 'a' && s[0] <= 'z') {
+	if s == "" || s[0] < 'a' || s[0] > 'z' {
 		s = "a" + s
 	}
 

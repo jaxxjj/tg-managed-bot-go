@@ -99,13 +99,29 @@ func Pattern(prefix string, length int) string {
 //
 //	got, ok := Extract(PackIntoUsername(p, n)); got == n && ok
 //
-// Returns an error if the resulting username would exceed the Telegram
-// max bot-username length (32 chars), or if n is not a valid nonce, or
-// if prefix is empty / contains characters that would be stripped.
+// The prefix is lower-cased (matching Extract/Pattern's case handling)
+// but NOT trimmed of whitespace — [Extract] does not trim either, so
+// trimming here would produce asymmetric normalization (Pack would
+// succeed on "  alva  " but Extract would miss on the same prefix).
+// Leading/trailing whitespace in prefix is rejected via the per-character
+// check below.
+//
+// Returns an error if:
+//   - prefix is empty, does not start with [a-z] (Telegram bot usernames
+//     must begin with a letter), or contains non-[a-z0-9_] characters;
+//   - n is not a valid nonce;
+//   - the resulting username would exceed the Telegram max bot-username
+//     length (32 chars).
 func PackIntoUsername(prefix, n string) (string, error) {
-	prefix = strings.ToLower(strings.TrimSpace(prefix))
+	prefix = strings.ToLower(prefix)
 	if prefix == "" {
 		return "", fmt.Errorf("%w: empty prefix", ErrInvalid)
+	}
+	// Telegram bot usernames must start with a letter. Enforce at the
+	// prefix level so PackIntoUsername is a safe constructor (rather
+	// than deferring the failure to BuildNewBot or Telegram itself).
+	if prefix[0] < 'a' || prefix[0] > 'z' {
+		return "", fmt.Errorf("%w: prefix must start with a letter [a-z] (got %q)", ErrInvalid, prefix[0])
 	}
 	for i, r := range prefix {
 		switch {

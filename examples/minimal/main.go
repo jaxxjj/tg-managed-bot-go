@@ -54,6 +54,11 @@ func main() {
 	store := pairing.NewMemoryStore()
 
 	r := gin.Default()
+	// Every pairing route returns or accepts one-time credentials. Intermediaries
+	// MUST NOT cache: stale 404s strand clients on "waiting", and cached 200s
+	// could leak tokens to later requests. Set on the whole group once.
+	r.Use(noStore)
+
 	r.POST("/pair", registerHandler(store))
 	r.PUT("/pair/:nonce", completeHandler(store, secret))
 	r.GET("/pair/:nonce", fetchHandler(store))
@@ -63,6 +68,16 @@ func main() {
 	if err := r.Run(addr); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// noStore is a middleware that disables caching of pairing responses in
+// browsers, proxies, and CDNs. The tokens / nonces handled here are
+// one-time bearer credentials.
+func noStore(c *gin.Context) {
+	c.Header("Cache-Control", "no-store, no-cache, must-revalidate, private")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
+	c.Next()
 }
 
 // registerHandler generates a nonce, registers it in the Store, and returns

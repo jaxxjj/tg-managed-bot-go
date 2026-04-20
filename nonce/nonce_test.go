@@ -173,12 +173,13 @@ func TestPackIntoUsername_Roundtrip(t *testing.T) {
 }
 
 func TestPackIntoUsername_CaseInsensitivePrefix(t *testing.T) {
+	// Case folding is applied (ALVA → alva). Whitespace is NOT stripped
+	// (see TestPackIntoUsername_Errors for the whitespace case).
 	n, _ := New()
 	u1, _ := PackIntoUsername("alva", n)
 	u2, _ := PackIntoUsername("ALVA", n)
-	u3, _ := PackIntoUsername("  Alva  ", n)
-	if u1 != u2 || u2 != u3 {
-		t.Errorf("prefix normalization inconsistent: %q / %q / %q", u1, u2, u3)
+	if u1 != u2 {
+		t.Errorf("prefix case normalization inconsistent: %q / %q", u1, u2)
 	}
 }
 
@@ -193,6 +194,16 @@ func TestPackIntoUsername_Errors(t *testing.T) {
 		{"bad prefix char", "alva!", n},
 		{"short nonce", "alva", "abc"},
 		{"too long packed", strings.Repeat("x", 20), n}, // 20 + 1 + 12 + 4 = 37 > 32
+
+		// Telegram bot usernames must start with a letter.
+		{"prefix starts with digit", "9alva", n},
+		{"prefix starts with underscore", "_alva", n},
+
+		// PackIntoUsername must NOT silently trim whitespace — Extract
+		// would later miss, breaking the pack/extract symmetry.
+		{"prefix leading space", " alva", n},
+		{"prefix trailing space", "alva ", n},
+		{"prefix with inner space", "al va", n},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -201,6 +212,33 @@ func TestPackIntoUsername_Errors(t *testing.T) {
 				t.Errorf("expected error")
 			}
 		})
+	}
+}
+
+// TestPackIntoUsername_SymmetricWithExtract is the contract test: any
+// username produced by PackIntoUsername must be recoverable by Extract
+// with the same prefix. If this ever fails, the two have drifted.
+func TestPackIntoUsername_SymmetricWithExtract(t *testing.T) {
+	for _, prefix := range []string{"alva", "ALVA", "test_rig", "a", "my1_app_2"} {
+		n, err := New()
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		username, err := PackIntoUsername(prefix, n)
+		if err != nil {
+			t.Logf("skipping prefix %q (rejected): %v", prefix, err)
+			continue
+		}
+		// Extract should succeed with both the original and the normalized
+		// (lower-cased) prefix. It must NOT require a trim.
+		got, ok := Extract(username, prefix)
+		if !ok {
+			t.Errorf("Extract(%q, %q) miss", username, prefix)
+			continue
+		}
+		if got != n {
+			t.Errorf("prefix=%q roundtrip mismatch: got %q, want %q", prefix, got, n)
+		}
 	}
 }
 

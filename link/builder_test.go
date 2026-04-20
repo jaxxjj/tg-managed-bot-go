@@ -72,7 +72,7 @@ func TestBuildNewBot_Errors(t *testing.T) {
 
 func TestValidateUsername(t *testing.T) {
 	good := []string{
-		"a_bot",   // min length 5
+		"a_bot", // min length 5
 		"mybot",
 		"Alva_Test_1_Bot",
 		"a1_" + strings.Repeat("x", UsernameMaxLen-3-3) + "bot", // exactly 32 chars
@@ -85,10 +85,10 @@ func TestValidateUsername(t *testing.T) {
 
 	bad := []string{
 		"",
-		"bot",                                // too short
-		"1startsWithDigit_bot",               // starts with digit
-		"has-dash_bot",                       // dash not allowed
-		"no_suffix",                          // doesn't end in bot
+		"bot",                  // too short
+		"1startsWithDigit_bot", // starts with digit
+		"has-dash_bot",         // dash not allowed
+		"no_suffix",            // doesn't end in bot
 		strings.Repeat("a", UsernameMaxLen) + "_bot", // too long
 	}
 	for _, u := range bad {

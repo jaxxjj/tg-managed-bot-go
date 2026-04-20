@@ -43,7 +43,9 @@ jobs:
           go-version: "1.25"
           cache: true
 
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          # Pin to a golangci-lint built with Go 1.25+ so it can lint code
+          # that uses Go 1.25 language features (matches alva-backend CI).
+          version: v2.8.1
           args: --timeout=3m
