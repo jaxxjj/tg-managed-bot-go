@@ -17,6 +17,7 @@ GO := go
 endif
 
 EXAMPLE_DIR := examples/minimal
+REDIS_DIR := pairing/stores/redis
 COVERAGE_FILE := coverage.out
 COVERAGE_HTML := coverage.html
 
@@ -79,7 +80,7 @@ tidy:
 	@echo "--> go mod tidy (root)"
 	@$(GO) mod tidy
 
-tidy-all: tidy
+tidy-all: tidy redis-tidy
 	@echo "--> go mod tidy ($(EXAMPLE_DIR))"
 	@cd $(EXAMPLE_DIR) && $(GO) mod tidy
 
@@ -115,8 +116,24 @@ lint-fix:
 
 .PHONY: verify
 
-verify: fmt-check vet lint test
+verify: fmt-check vet lint test redis-test
 	@echo "--> all checks passed"
+
+# =============================================================================
+# Redis store submodule (independent go.mod)
+# =============================================================================
+
+.PHONY: redis-test redis-vet redis-tidy
+
+redis-test:
+	@echo "--> Testing $(REDIS_DIR)"
+	@cd $(REDIS_DIR) && $(GO) test -race ./...
+
+redis-vet:
+	@cd $(REDIS_DIR) && $(GO) vet ./...
+
+redis-tidy:
+	@cd $(REDIS_DIR) && $(GO) mod tidy
 
 # =============================================================================
 # Example (examples/minimal, independent go.mod)
