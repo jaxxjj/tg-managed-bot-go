@@ -51,10 +51,12 @@ No `@BotFather /newbot`, no token copy-paste. This package implements the
 |---|---|
 | [`link`](./link) | Build `https://t.me/newbot/...` deep links; validate & sanitize bot usernames. Pure functions, no I/O. |
 | [`nonce`](./nonce) | Generate and parse pairing nonces (Crockford base32). Pure functions. |
-| [`pairing`](./pairing) | HTTP-less `Store` interface for the token handoff protocol, plus an in-memory implementation for tests. Bring your own Redis / KV / Postgres. |
-| `manager` | *(planned)* Handler for `managed_bot_created` updates: extract nonce → fetch token → push to pairing store → DM fallback. |
-| `tgapi` | *(planned)* Minimal Bot API client covering just `getManagedBotToken`, `replaceManagedBotToken`, `sendMessage`, `getMe`, `getWebhookInfo`. |
-| `reconcile` | *(planned)* Pure drift-detection helpers: given `stored BotState` + `current BotInfo`, return list of `Drift` events (`TokenRotated`, `WebhookHijacked`, `PrivacyRegression`, `Deleted`). |
+| [`pairing`](./pairing) | `Store` interface for the token handoff protocol, plus an in-memory implementation for tests. Bring your own Redis / KV / Postgres. |
+| [`pairing/server`](./pairing/server) | Stdlib-only `http.HandlerFunc`s (POST/PUT/GET `/pair`) with `Cache-Control: no-store` and pluggable `Authenticator`. Uses Go 1.22 ServeMux path patterns. |
+| [`pairing/stores/redis`](./pairing/stores/redis) | Redis-backed `Store` built on `go-redis/v9` with atomic Lua scripts. Separate go.mod so go-redis does not pollute the root dep graph. |
+| [`tgapi`](./tgapi) | Minimal Bot API client for the five methods Managed Bots operation needs: `getMe`, `getManagedBotToken`, `replaceManagedBotToken`, `getWebhookInfo`, `sendMessage`. Sentinel errors with `errors.Is` / `errors.As`. |
+| [`manager`](./manager) | `Handler.HandleUpdate` drives the manager-bot side: extract nonce → fetch token → complete pairing, with DM fallback. Narrow `Client` interface for testability. |
+| [`reconcile`](./reconcile) | Pure `CheckDrift(State, Observed) []Drift`. Detects `Deleted`, `TokenRotated`, `WebhookHijacked`, `PrivacyRegression`, `UsernameChanged`, `Unreachable`. |
 
 ## Quick sketch
 
@@ -139,28 +141,28 @@ go test -race -cover ./...
 golangci-lint run
 ```
 
-Current coverage:
-- `link` — 96%
-- `nonce` — 87%
-- `pairing` — 100%
+Current coverage (root module):
+- `link` — 96% · `nonce` — 87% · `pairing` — 100%
+- `tgapi` — 100% · `pairing/server` — 100% · `manager` — 100% · `reconcile` — 100%
+- `pairing/stores/redis` (submodule) — 100%
 
 ## Project status & roadmap
 
-**v0.0.1 (this release):** link + nonce + pairing.Store interface + memory impl.
+**v0.0.1 — shipped:** `link` + `nonce` + `pairing.Store` interface + memory impl.
 
-**Planned v0.1:**
-- `pairing/server` — HTTP handler for `POST /pair`, `PUT /pair/{nonce}`,
-  `GET /pair/{nonce}` (can be mounted on any Go HTTP mux)
-- `pairing/stores/redis` — Redis-backed implementation using Lua script
-  for atomic `FetchAndDelete`
-- `tgapi` — minimal Bot API client (3 methods)
-- `manager` — update handler + pluggable `Pusher` interface
-- `reconcile` — drift detection state machine
+**v0.1 — this release:**
+- `tgapi` — minimal Bot API client (5 methods) with sentinel errors (`ErrUnauthorized`, `ErrBotDeactivated`, `ErrTooManyRequests`)
+- `pairing/server` — stdlib `http.HandlerFunc`s + `Mount()` helper, zerolog logging, `Cache-Control: no-store`
+- `pairing/stores/redis` — Redis-backed store via atomic Lua scripts (independent go.mod)
+- `manager` — `Handler.HandleUpdate` with DM fallback
+- `reconcile` — pure `CheckDrift` state machine
+- `examples/alva-like` — full-stack integration (Redis + Gin + manager webhook + drift probe)
 
 **Phase 2 (nice-to-have):**
 - Cloudflare Workers / Deno Deploy compatible pairing server
-- Prometheus metrics adapter
-- Webhook signature verification helpers
+- Prometheus / OpenTelemetry helpers
+- Webhook signature verification helpers (IP allowlist, signed tokens)
+- Batching `reconcile` scheduler with exponential backoff
 
 ## Credits
 

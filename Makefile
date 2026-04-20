@@ -17,6 +17,7 @@ GO := go
 endif
 
 EXAMPLE_DIR := examples/minimal
+ALVA_EXAMPLE_DIR := examples/alva-like
 REDIS_DIR := pairing/stores/redis
 COVERAGE_FILE := coverage.out
 COVERAGE_HTML := coverage.html
@@ -83,6 +84,8 @@ tidy:
 tidy-all: tidy redis-tidy
 	@echo "--> go mod tidy ($(EXAMPLE_DIR))"
 	@cd $(EXAMPLE_DIR) && $(GO) mod tidy
+	@echo "--> go mod tidy ($(ALVA_EXAMPLE_DIR))"
+	@cd $(ALVA_EXAMPLE_DIR) && $(GO) mod tidy
 
 # =============================================================================
 # Linting
@@ -154,6 +157,25 @@ example-vet:
 
 example-tidy:
 	@cd $(EXAMPLE_DIR) && $(GO) mod tidy
+
+# -----------------------------------------------------------------------------
+# Alva-like example (examples/alva-like, independent go.mod)
+
+.PHONY: alva-example-build alva-example-vet alva-example-tidy alva-example-run
+
+alva-example-build:
+	@echo "--> Building $(ALVA_EXAMPLE_DIR)"
+	@cd $(ALVA_EXAMPLE_DIR) && $(GO) build ./...
+
+alva-example-vet:
+	@cd $(ALVA_EXAMPLE_DIR) && $(GO) vet ./...
+
+alva-example-tidy:
+	@cd $(ALVA_EXAMPLE_DIR) && $(GO) mod tidy
+
+alva-example-run:
+	@echo "--> Running $(ALVA_EXAMPLE_DIR) (needs PAIRING_SECRET, MANAGER_BOT_TOKEN, MANAGER_BOT_USERNAME)"
+	@cd $(ALVA_EXAMPLE_DIR) && $(GO) run .
 
 # =============================================================================
 # Tooling
