@@ -34,6 +34,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -64,6 +65,23 @@ func main() {
 
 	// 2. Manager Bot API client.
 	api := tgapi.NewClient(cfg.ManagerToken)
+
+	// 2b. Register the manager bot's webhook, if a public URL is
+	//     configured. When PUBLIC_URL is empty, the operator is
+	//     expected to run setWebhook out-of-band (handy for local dev
+	//     behind ngrok/tailscale where the tunneled URL varies).
+	if cfg.PublicURL != "" {
+		hookURL := strings.TrimRight(cfg.PublicURL, "/") + "/tg/manager-webhook"
+		setupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := api.SetWebhook(setupCtx, hookURL, []string{"message"}); err != nil {
+			cancel()
+			log.Fatal().Err(err).Str("webhook", hookURL).Msg("SetWebhook failed")
+		}
+		cancel()
+		log.Info().Str("webhook", hookURL).Msg("manager bot webhook registered")
+	} else {
+		log.Warn().Msg("PUBLIC_URL unset — run setWebhook out-of-band for manager bot")
+	}
 
 	// 3. Manager-side update handler.
 	handler := &manager.Handler{
@@ -141,6 +159,12 @@ type config struct {
 	ManagerUsername string
 	NoncePrefix     string
 	RedisAddr       string
+
+	// PublicURL, when non-empty, is used at startup to register the
+	// manager bot's webhook via tgapi.Client.SetWebhook. Leave empty
+	// to run setWebhook out-of-band (curl, BotFather etc.); handy for
+	// local development behind ngrok/tailscale.
+	PublicURL string
 }
 
 func mustLoadConfig() config {
@@ -151,6 +175,7 @@ func mustLoadConfig() config {
 		ManagerUsername: os.Getenv("MANAGER_BOT_USERNAME"),
 		NoncePrefix:     getenv("NONCE_PREFIX", "alva"),
 		RedisAddr:       getenv("REDIS_ADDR", "localhost:6379"),
+		PublicURL:       os.Getenv("PUBLIC_URL"),
 	}
 	miss := []string{}
 	if c.PairingSecret == "" {

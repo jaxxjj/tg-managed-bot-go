@@ -202,6 +202,7 @@ clean:
 	@echo "--> Cleaning generated artifacts"
 	@rm -f $(COVERAGE_FILE) $(COVERAGE_HTML)
 	@rm -f $(EXAMPLE_DIR)/minimal
+	@rm -f $(ALVA_EXAMPLE_DIR)/alva-like
 
 # =============================================================================
 # Help

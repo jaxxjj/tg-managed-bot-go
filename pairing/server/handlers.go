@@ -91,14 +91,13 @@ func PostPair(cfg Config) http.HandlerFunc {
 			writeError(w, r, http.StatusInternalServerError, "internal error")
 			return
 		}
-		if err := cfg.Store.Put(ctx, n, ttl); err != nil {
-			logger.Error().Err(err).Msg("pairing: store.Put failed")
-			writeError(w, r, http.StatusInternalServerError, "internal error")
-			return
-		}
+
+		// Build the deep link BEFORE touching the store. If Config is
+		// misconfigured (invalid NoncePrefix / ManagerBotUsername) we
+		// want to fail fast without leaving an orphaned Waiting entry
+		// that would only reap at TTL expiry.
 		botUsername, err := nonce.PackIntoUsername(cfg.NoncePrefix, n)
 		if err != nil {
-			// Misconfigured prefix: surface to the operator, not the caller.
 			logger.Error().Err(err).
 				Str("prefix", cfg.NoncePrefix).
 				Msg("pairing: PackIntoUsername failed — check Config.NoncePrefix")
@@ -111,7 +110,16 @@ func PostPair(cfg Config) http.HandlerFunc {
 			SuggestedName:      cfg.SuggestedName,
 		})
 		if err != nil {
-			logger.Error().Err(err).Msg("pairing: link.BuildNewBot failed")
+			logger.Error().Err(err).
+				Str("manager", cfg.ManagerBotUsername).
+				Msg("pairing: link.BuildNewBot failed — check Config.ManagerBotUsername")
+			writeError(w, r, http.StatusInternalServerError, "internal error")
+			return
+		}
+
+		// Only persist once we know we can present a working link.
+		if err := cfg.Store.Put(ctx, n, ttl); err != nil {
+			logger.Error().Err(err).Msg("pairing: store.Put failed")
 			writeError(w, r, http.StatusInternalServerError, "internal error")
 			return
 		}

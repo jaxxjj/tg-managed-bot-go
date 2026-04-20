@@ -180,3 +180,20 @@ func (c *Client) SendMessage(ctx context.Context, chatID int64, text string) err
 	}{chatID, text}
 	return c.do(ctx, "sendMessage", req, nil)
 }
+
+// SetWebhook registers url as the webhook endpoint for this bot. Pass an
+// empty url to remove the webhook (equivalent to [Client.deleteWebhook],
+// not exposed here). allowedUpdates may be nil to receive all update
+// types except chat_member (matching Telegram's default).
+//
+// Primary use in this package: the manager bot's own webhook
+// registration at startup so managed_bot_created events arrive.
+//
+// Reference: https://core.telegram.org/bots/api#setwebhook
+func (c *Client) SetWebhook(ctx context.Context, url string, allowedUpdates []string) error {
+	req := struct {
+		URL            string   `json:"url"`
+		AllowedUpdates []string `json:"allowed_updates,omitempty"`
+	}{URL: url, AllowedUpdates: allowedUpdates}
+	return c.do(ctx, "setWebhook", req, nil)
+}

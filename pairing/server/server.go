@@ -111,7 +111,17 @@ func (c *Config) effectiveNonceExtractor() func(*http.Request) string {
 // an exact "Authorization: Bearer <secret>" header. Convenience for the
 // common case; callers with richer requirements (HMAC signatures,
 // Origin checks, mTLS, IP allowlists) should write their own.
+//
+// Panics when secret is empty. A blank secret would match a bare
+// "Authorization: Bearer " header, turning PUT /pair/{nonce} into an
+// unauthenticated token-injection endpoint. Empty values almost always
+// indicate a misconfiguration (unset env var, typo) — failing loudly
+// at startup is safer than silently fail-open.
 func BearerAuth(secret string) func(*http.Request) bool {
+	if secret == "" {
+		panic("server: BearerAuth called with empty secret — this would fail-open. " +
+			"Ensure the secret env var / config value is set.")
+	}
 	expected := "Bearer " + secret
 	return func(r *http.Request) bool {
 		return r.Header.Get("Authorization") == expected

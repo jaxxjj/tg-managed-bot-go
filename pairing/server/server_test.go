@@ -157,6 +157,27 @@ func TestBearerAuth(t *testing.T) {
 	}
 }
 
+func TestBearerAuth_EmptySecretPanics(t *testing.T) {
+	// Regression for Codex P1: BearerAuth("") must fail closed at
+	// construction. An empty secret would otherwise accept a bare
+	// "Authorization: Bearer " header and silently enable anyone to
+	// call PUT /pair/{nonce}.
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("BearerAuth(\"\") should panic; it did not")
+		}
+		msg, ok := r.(string)
+		if !ok {
+			t.Fatalf("panic value is %T, want string", r)
+		}
+		if !strings.Contains(msg, "empty secret") {
+			t.Errorf("panic message should mention empty secret; got %q", msg)
+		}
+	}()
+	_ = BearerAuth("")
+}
+
 // ---------- End-to-end HTTP flow ----------
 
 func TestFlow_HappyPath(t *testing.T) {
